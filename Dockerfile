@@ -13,7 +13,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Expose the port the app runs on (if using Flask or another web server)
-EXPOSE 5000
+
+EXPOSE 8000
 
 # Command to run the application
 CMD ["python", "bot.py"]
