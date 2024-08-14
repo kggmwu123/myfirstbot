@@ -216,26 +216,48 @@ def handle_edit_choice(message):
         bot.send_message(chat_id, "Please select your new college:", reply_markup=create_college_keyboard())
     elif choice == 'Edit Department':
         current_college = user_data[chat_id]['college']
-        bot.send_message(chat_id, "Please select your new department:",
-                         reply_markup=create_department_keyboard(current_college))
-    else:
-        bot.send_message(chat_id, "Editing process cancelled.")
+        bot.send_message(chat_id, "Please select your new department:", reply_markup=create_department_keyboard(current_college))
+    elif choice == 'Cancel':
+        bot.send_message(chat_id, "Edit process canceled.")
+        bot.send_message(chat_id, "What would you like to do next?")
 
 def edit_first_name(message):
-    get_first_name(message)
+    chat_id = message.chat.id
+    first_name = message.text.strip()
+    if re.match(name_regex, first_name):
+        user_data[chat_id]['first_name'] = first_name
+        bot.send_message(chat_id, "First name updated successfully.")
+    else:
+        bot.send_message(chat_id, "Invalid first name. Please enter a valid first name (only letters):")
+        bot.register_next_step_handler(message, edit_first_name)
 
 def edit_last_name(message):
-    get_last_name(message)
+    chat_id = message.chat.id
+    last_name = message.text.strip()
+    if re.match(name_regex, last_name):
+        user_data[chat_id]['last_name'] = last_name
+        bot.send_message(chat_id, "Last name updated successfully.")
+    else:
+        bot.send_message(chat_id, "Invalid last name. Please enter a valid last name (only letters):")
+        bot.register_next_step_handler(message, edit_last_name)
 
 def edit_email(message):
-    get_email(message)
+    chat_id = message.chat.id
+    email = message.text.strip()
+    if re.match(email_regex, email):
+        user_data[chat_id]['email'] = email
+        bot.send_message(chat_id, "Email updated successfully.")
+    else:
+        bot.send_message(chat_id, "Invalid email address. Please enter a valid email address:")
+        bot.register_next_step_handler(message, edit_email)
 
 # Function to handle /cancel command
 @bot.message_handler(commands=['cancel'])
 def cancel(message):
     chat_id = message.chat.id
-    user_data.pop(chat_id, None)
-    bot.send_message(chat_id, "Registration process cancelled. You can start again with /start.")
+    if chat_id in user_data:
+        user_data.pop(chat_id)
+    bot.send_message(chat_id, "Your registration has been canceled.")
 
 # Function to handle /help command
 @bot.message_handler(commands=['help'])
@@ -250,5 +272,17 @@ def help_command(message):
     )
     bot.send_message(message.chat.id, help_text)
 
+# Flask app for Koyeb health check
+from flask import Flask
+
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Bot is running!"
+
 # Start polling
-bot.polling()
+if __name__ == "__main__":
+    from threading import Thread
+    Thread(target=lambda: bot.polling()).start()
+    app.run(host="0.0.0.0", port=8000)
