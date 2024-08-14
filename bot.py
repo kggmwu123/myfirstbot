@@ -3,6 +3,9 @@ import telebot
 from telebot import types
 from dotenv import load_dotenv
 import os
+import logging
+from flask import Flask
+from threading import Thread
 
 # Load environment variables from .env file
 load_dotenv()
@@ -38,6 +41,9 @@ colleges = {
     "College of Health Science": ["Nursing", "Pharmacy", "Midwifery"],
     "College of Natural and Computational Science": ["Biology", "Chemistry", "Math"]
 }
+
+# Setup logging
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Function to check if the user is already registered
 def is_user_registered(first_name, last_name):
@@ -94,14 +100,17 @@ def get_last_name(message):
 
 def get_email(message):
     chat_id = message.chat.id
+    if chat_id not in user_data:
+        bot.send_message(chat_id, "Your registration session has expired. Please restart the registration process using /start.")
+        return
+
     email = message.text.strip()
     if re.match(email_regex, email):
         first_name = user_data[chat_id].get('first_name')
         last_name = user_data[chat_id].get('last_name')
 
         if is_user_registered(first_name, last_name):
-            bot.send_message(chat_id,
-                             "This user is already registered with the given first name and last name. Please use a different name or contact support.")
+            bot.send_message(chat_id, "This user is already registered with the given first name and last name. Please use a different name or contact support.")
             user_data.pop(chat_id)
             return
 
@@ -215,18 +224,22 @@ def handle_edit_choice(message):
     elif choice == 'Edit College':
         bot.send_message(chat_id, "Please select your new college:", reply_markup=create_college_keyboard())
     elif choice == 'Edit Department':
-        current_college = user_data[chat_id]['college']
-        bot.send_message(chat_id, "Please select your new department:", reply_markup=create_department_keyboard(current_college))
+        if 'college' not in user_data[chat_id]:
+            bot.send_message(chat_id, "Please select your college first:")
+            bot.register_next_step_handler(message, edit_college)
+        else:
+            college = user_data[chat_id]['college']
+            bot.send_message(chat_id, "Please select your new department:", reply_markup=create_department_keyboard(college))
     elif choice == 'Cancel':
-        bot.send_message(chat_id, "Edit process canceled.")
-        bot.send_message(chat_id, "What would you like to do next?")
+        bot.send_message(chat_id, "Your editing process has been canceled.")
+        user_data.pop(chat_id, None)
 
 def edit_first_name(message):
     chat_id = message.chat.id
     first_name = message.text.strip()
     if re.match(name_regex, first_name):
         user_data[chat_id]['first_name'] = first_name
-        bot.send_message(chat_id, "First name updated successfully.")
+        bot.send_message(chat_id, "Your first name has been updated.")
     else:
         bot.send_message(chat_id, "Invalid first name. Please enter a valid first name (only letters):")
         bot.register_next_step_handler(message, edit_first_name)
@@ -236,7 +249,7 @@ def edit_last_name(message):
     last_name = message.text.strip()
     if re.match(name_regex, last_name):
         user_data[chat_id]['last_name'] = last_name
-        bot.send_message(chat_id, "Last name updated successfully.")
+        bot.send_message(chat_id, "Your last name has been updated.")
     else:
         bot.send_message(chat_id, "Invalid last name. Please enter a valid last name (only letters):")
         bot.register_next_step_handler(message, edit_last_name)
@@ -246,10 +259,29 @@ def edit_email(message):
     email = message.text.strip()
     if re.match(email_regex, email):
         user_data[chat_id]['email'] = email
-        bot.send_message(chat_id, "Email updated successfully.")
+        bot.send_message(chat_id, "Your email has been updated.")
     else:
         bot.send_message(chat_id, "Invalid email address. Please enter a valid email address:")
         bot.register_next_step_handler(message, edit_email)
+
+def edit_college(message):
+    chat_id = message.chat.id
+    bot.send_message(chat_id, "Please select your new college:", reply_markup=create_college_keyboard())
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('college_'))
+def edit_college_selection(call):
+    chat_id = call.message.chat.id
+    college = call.data.split('college_')[1]
+    user_data[chat_id]['college'] = college
+    bot.send_message(chat_id, "Please select your new department:", reply_markup=create_department_keyboard(college))
+
+def edit_department(message):
+    chat_id = message.chat.id
+    college = user_data[chat_id].get('college')
+    if college:
+        bot.send_message(chat_id, "Please select your new department:", reply_markup=create_department_keyboard(college))
+    else:
+        bot.send_message(chat_id, "You need to select a college first. Use /edit to select a college.")
 
 # Function to handle /cancel command
 @bot.message_handler(commands=['cancel'])
@@ -257,32 +289,37 @@ def cancel(message):
     chat_id = message.chat.id
     if chat_id in user_data:
         user_data.pop(chat_id)
-    bot.send_message(chat_id, "Your registration has been canceled.")
+        bot.send_message(chat_id, "Your registration process has been canceled.")
+    else:
+        bot.send_message(chat_id, "You don't have an ongoing registration process.")
 
 # Function to handle /help command
 @bot.message_handler(commands=['help'])
 def help_command(message):
     help_text = (
-        "This bot helps you register as a staff member.\n\n"
         "Available commands:\n"
         "/start - Begin the registration process\n"
         "/edit - Edit your registration details\n"
         "/cancel - Cancel the current registration\n"
-        "/help - Display this help message"
+        "/help - Display this help message\n"
+        "To begin, please use /start to register."
     )
     bot.send_message(message.chat.id, help_text)
 
-# Flask app for Koyeb health check
-from flask import Flask
-
+# Flask application to keep the bot running on PythonAnywhere
 app = Flask(__name__)
 
 @app.route('/')
-def home():
+def index():
     return "Bot is running!"
 
-# Start polling
-if __name__ == "__main__":
-    from threading import Thread
-    Thread(target=lambda: bot.polling()).start()
-    app.run(host="0.0.0.0", port=8000)
+def run_flask_app():
+    app.run(host='0.0.0.0', port=5000)
+
+if __name__ == '__main__':
+    # Start the Flask app in a separate thread
+    thread = Thread(target=run_flask_app)
+    thread.start()
+    
+    # Start polling for new messages
+    bot.polling(none_stop=True)
